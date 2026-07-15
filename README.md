@@ -160,6 +160,10 @@ cd C:\AI_Workspaces\Anti_Workspace\linux-ssh-mcp
 
 ### Step 2: Install dependencies
 
+You can set up the project using either `uv` (recommended) or the standard Python tools.
+
+#### Option A: Using `uv` (Recommended)
+
 ```powershell
 uv sync
 ```
@@ -170,10 +174,34 @@ This single command will:
 3. Install all required packages (FastMCP, Paramiko, etc.)
 4. Lock dependency versions in `uv.lock`
 
-### Step 3: Verify the installation
+#### Option B: Using Standard Python `venv` & `pip`
 
 ```powershell
+# 1. Create a virtual environment
+python -m venv .venv
+
+# 2. Activate the virtual environment
+# On Windows (PowerShell):
+.venv\Scripts\Activate.ps1
+# On Windows (CMD):
+.venv\Scripts\activate.bat
+# On macOS/Linux:
+source .venv/bin/activate
+
+# 3. Install the package in editable mode (reads pyproject.toml)
+pip install -e .
+```
+
+### Step 3: Verify the installation
+
+#### If using `uv`:
+```powershell
 uv run python -c "import mcp; import paramiko; print('All dependencies installed successfully!')"
+```
+
+#### If using standard `venv` (make sure the virtual environment is activated):
+```powershell
+python -c "import mcp; import paramiko; print('All dependencies installed successfully!')"
 ```
 
 ### Step 4 (Optional): Test with MCP Inspector
