@@ -1,6 +1,8 @@
 """
 Multi-Session SSH Manager for Linux SSH MCP Server.
 
+Author: Pawan Gunjkar (pawangunjkar@gamil.com)
+
 Manages multiple concurrent SSH connections using paramiko.
 Each connection is identified by a session name (e.g., "default", "prod", "staging").
 Supports auto-reconnect, command timeouts, and output truncation.

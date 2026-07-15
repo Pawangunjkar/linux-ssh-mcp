@@ -39,6 +39,7 @@
 - [Multi-Session Usage Examples](#-multi-session-usage-examples)
 - [Security Best Practices](#-security-best-practices)
 - [Troubleshooting](#-troubleshooting)
+- [Author & Contact](#-author--contact)
 - [License](#-license)
 
 ---
@@ -2297,6 +2298,16 @@ This opens a browser-based UI where you can:
 
 ---
 
+## 👥 Author & Contact
+
+This project was created by **Pawan Gunjkar**.
+
+- **Author**: Pawan Gunjkar
+- **Email**: pawangunjkar@gamil.com
+- **Bug Reports**: If you find any bugs, issues, or want to report bugs/request help, please report them to me at my email above.
+
+---
+
 ## 📄 License
 
 This project is licensed under the **MIT License**.
@@ -2304,7 +2315,7 @@ This project is licensed under the **MIT License**.
 ```
 MIT License
 
-Copyright (c) 2025
+Copyright (c) 2026 Pawan Gunjkar <pawangunjkar@gamil.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

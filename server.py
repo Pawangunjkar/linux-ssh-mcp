@@ -1,6 +1,8 @@
 """
 Linux SSH MCP Server — Main Entry Point.
 
+Author: Pawan Gunjkar (pawangunjkar@gamil.com)
+
 A comprehensive MCP server providing 50+ SSH tools across 12 categories
 for managing remote Linux machines via AI assistants.
 

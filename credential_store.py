@@ -1,6 +1,8 @@
 """
 Credential Store for Linux SSH MCP Server.
 
+Author: Pawan Gunjkar (pawangunjkar@gamil.com)
+
 Manages SSH credentials with a layered lookup strategy:
 1. Environment variables (SSH_HOST, SSH_USERNAME, SSH_PASSWORD, etc.)
 2. In-memory cache (current server session)
