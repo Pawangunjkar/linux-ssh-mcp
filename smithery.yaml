@@ -25,7 +25,7 @@ startCommand:
   commandFunction: |-
     (config) => ({
       command: 'uvx',
-      args: ['linux-ssh-mcp'],
+      args: ['pawangunjkar-linux-ssh-mcp'],
       env: Object.fromEntries(
         Object.entries(config).filter(([_, v]) => v != null && v !== '')
       )

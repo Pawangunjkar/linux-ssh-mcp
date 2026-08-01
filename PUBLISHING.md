@@ -35,7 +35,7 @@ twine upload dist/*
 ### Verify install
 
 ```bash
-uvx linux-ssh-mcp --help
+uvx pawangunjkar-linux-ssh-mcp --help
 # Or add to MCP config:
 ```
 
@@ -44,7 +44,7 @@ uvx linux-ssh-mcp --help
   "mcpServers": {
     "linux-ssh": {
       "command": "uvx",
-      "args": ["linux-ssh-mcp"],
+      "args": ["pawangunjkar-linux-ssh-mcp"],
       "env": {
         "SSH_HOST": "your-host",
         "SSH_USERNAME": "ubuntu",
@@ -66,7 +66,7 @@ Smithery is the primary MCP package registry.
 3. Smithery reads `smithery.yaml` automatically
 4. Complete the review flow
 
-**Prerequisite:** Publish to PyPI first (Smithery uses `uvx linux-ssh-mcp`).
+**Prerequisite:** Publish to PyPI first (Smithery uses `uvx pawangunjkar-linux-ssh-mcp`).
 
 **CLI alternative:**
 
@@ -118,7 +118,7 @@ gh repo edit Pawangunjkar/linux-ssh-mcp \
 Add to the top of `README.md`:
 
 ```markdown
-[![PyPI version](https://badge.fury.io/py/linux-ssh-mcp.svg)](https://pypi.org/project/linux-ssh-mcp/)
+[![PyPI version](https://badge.fury.io/py/pawangunjkar-linux-ssh-mcp.svg)](https://pypi.org/project/pawangunjkar-linux-ssh-mcp/)
 [![Smithery](https://smithery.ai/badge/linux-ssh-mcp)](https://smithery.ai/server/linux-ssh-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ```
