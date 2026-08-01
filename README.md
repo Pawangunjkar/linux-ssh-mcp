@@ -69,6 +69,52 @@ Traditional AI code assistants can run commands on your *local* machine. This MC
 
 ---
 
+## 📥 Quick Install
+
+### Option 1: PyPI / uvx (Recommended)
+
+```bash
+uvx linux-ssh-mcp
+```
+
+**Cursor / Claude Desktop** — add to `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "linux-ssh": {
+      "command": "uvx",
+      "args": ["linux-ssh-mcp"],
+      "env": {
+        "SSH_HOST": "your-host",
+        "SSH_PORT": "22",
+        "SSH_USERNAME": "ubuntu",
+        "SSH_KEY_PATH": "/home/user/.ssh/id_rsa"
+      }
+    }
+  }
+}
+```
+
+### Option 2: Smithery
+
+```bash
+npx -y @smithery/cli install linux-ssh-mcp --client cursor
+```
+
+### Option 3: Clone from GitHub
+
+```bash
+git clone https://github.com/Pawangunjkar/linux-ssh-mcp.git
+cd linux-ssh-mcp
+uv sync
+uv run server.py
+```
+
+> See [PUBLISHING.md](PUBLISHING.md) for PyPI, Smithery, and directory submission steps.
+
+---
+
 ## 🏗 Architecture
 
 ```
@@ -224,17 +270,33 @@ Each AI IDE reads MCP server configurations from a JSON file. The server is laun
 
 Every IDE uses the same core JSON structure:
 
+**Recommended (PyPI / uvx — no clone required):**
+
+```json
+{
+  "mcpServers": {
+    "linux-ssh": {
+      "command": "uvx",
+      "args": ["linux-ssh-mcp"],
+      "env": {
+        "SSH_HOST": "your-host",
+        "SSH_PORT": "22",
+        "SSH_USERNAME": "your-username",
+        "SSH_KEY_PATH": "/path/to/private/key"
+      }
+    }
+  }
+}
+```
+
+**Alternative (from source):**
+
 ```json
 {
   "mcpServers": {
     "linux-ssh": {
       "command": "uv",
-      "args": [
-        "run",
-        "--directory",
-        "C:\\AI_Workspaces\\Anti_Workspace\\linux-ssh-mcp",
-        "server.py"
-      ],
+      "args": ["run", "--directory", "/path/to/linux-ssh-mcp", "server.py"],
       "env": {
         "SSH_HOST": "your-host",
         "SSH_PORT": "22",
@@ -249,8 +311,8 @@ Every IDE uses the same core JSON structure:
 | Field | Purpose |
 |---|---|
 | `"linux-ssh"` | A unique name for this MCP server (you can change it) |
-| `"command"` | The executable to run (`uv`) |
-| `"args"` | Arguments passed to `uv`: run the server from its directory |
+| `"command"` | `uvx` (PyPI) or `uv` (from source) |
+| `"args"` | Package name (`linux-ssh-mcp`) or source path + `server.py` |
 | `"env"` | **OPTIONAL** — Environment variables for default SSH credentials |
 
 > **💡 The `env` section is entirely optional.** If you omit it, the server will interactively ask for credentials in the chat when you first try to connect. This is the recommended approach for security-sensitive environments.

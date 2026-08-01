@@ -4,15 +4,36 @@ version = "1.0.0"
 description = "MCP server for SSH operations on remote Linux machines — 50+ tools for file management, system monitoring, Docker, networking, and more"
 requires-python = ">=3.10"
 authors = [
-    { name = "Pawan Gunjkar", email = "pawangunjkar@gamil.com" }
+    { name = "Pawan Gunjkar", email = "pawangunjkar@gmail.com" }
 ]
 readme = "README.md"
 license = { text = "MIT" }
+keywords = ["mcp", "model-context-protocol", "ssh", "linux", "devops", "paramiko", "remote-server"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: System :: Systems Administration",
+]
 
 dependencies = [
     "mcp[cli]>=1.0.0",
     "paramiko>=3.0.0",
 ]
+
+[project.scripts]
+linux-ssh-mcp = "server:main"
+
+[project.urls]
+Homepage = "https://github.com/Pawangunjkar/linux-ssh-mcp"
+Repository = "https://github.com/Pawangunjkar/linux-ssh-mcp"
+Issues = "https://github.com/Pawangunjkar/linux-ssh-mcp/issues"
+Documentation = "https://github.com/Pawangunjkar/linux-ssh-mcp#readme"
 
 [build-system]
 requires = ["hatchling"]
@@ -20,3 +41,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "server.py",
+    "ssh_manager.py",
+    "credential_store.py",
+    "README.md",
+    "LICENSE",
+]

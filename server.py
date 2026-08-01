@@ -1178,5 +1178,10 @@ def ssh_failed_logins(session_name: str = "default", count: int = 30) -> str:
 # Entry Point
 # ============================================================
 
-if __name__ == "__main__":
+def main() -> None:
+    """Console entry point for PyPI / uvx installs."""
     mcp.run(transport="stdio")
+
+
+if __name__ == "__main__":
+    main()
