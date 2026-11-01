@@ -74,7 +74,7 @@ Traditional AI code assistants can run commands on your *local* machine. This MC
 ### Option 1: PyPI / uvx (Recommended)
 
 ```bash
-uvx pawangunjkar-linux-ssh-mcp
+uvx linux-ssh-mcp
 ```
 
 **Cursor / Claude Desktop** — add to `.cursor/mcp.json`:
@@ -84,7 +84,7 @@ uvx pawangunjkar-linux-ssh-mcp
   "mcpServers": {
     "linux-ssh": {
       "command": "uvx",
-      "args": ["pawangunjkar-linux-ssh-mcp"],
+      "args": ["linux-ssh-mcp"],
       "env": {
         "SSH_HOST": "your-host",
         "SSH_PORT": "22",
@@ -277,7 +277,7 @@ Every IDE uses the same core JSON structure:
   "mcpServers": {
     "linux-ssh": {
       "command": "uvx",
-      "args": ["pawangunjkar-linux-ssh-mcp"],
+      "args": ["linux-ssh-mcp"],
       "env": {
         "SSH_HOST": "your-host",
         "SSH_PORT": "22",
@@ -312,7 +312,7 @@ Every IDE uses the same core JSON structure:
 |---|---|
 | `"linux-ssh"` | A unique name for this MCP server (you can change it) |
 | `"command"` | `uvx` (PyPI) or `uv` (from source) |
-| `"args"` | Package name (`pawangunjkar-linux-ssh-mcp`) or source path + `server.py` |
+| `"args"` | Package name (`linux-ssh-mcp`) or source path + `server.py` |
 | `"env"` | **OPTIONAL** — Environment variables for default SSH credentials |
 
 > **💡 The `env` section is entirely optional.** If you omit it, the server will interactively ask for credentials in the chat when you first try to connect. This is the recommended approach for security-sensitive environments.

@@ -1,5 +1,5 @@
 [project]
-name = "pawangunjkar-linux-ssh-mcp"
+name = "linux-ssh-mcp"
 version = "1.0.0"
 description = "MCP server for SSH operations on remote Linux machines — 50+ tools for file management, system monitoring, Docker, networking, and more"
 requires-python = ">=3.10"
@@ -27,7 +27,7 @@ dependencies = [
 ]
 
 [project.scripts]
-pawangunjkar-linux-ssh-mcp = "server:main"
+linux-ssh-mcp = "server:main"
 
 [project.urls]
 Homepage = "https://github.com/Pawangunjkar/linux-ssh-mcp"
