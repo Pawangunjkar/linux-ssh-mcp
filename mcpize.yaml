@@ -1,0 +1,36 @@
+version: 1
+name: pawangunjkar-linux-ssh-mcp
+description: "Production Linux SSH MCP server with 62 tools across 12 categories: multi-host SSH sessions, remote command execution, SFTP file operations, CPU/RAM/disk/inode health audits, systemd/journalctl triage, socket diagnostics, Docker lifecycle, and security checks."
+runtime: python
+entry: server.py
+
+startCommand:
+  type: http
+  command: python -m server --http
+
+credentials_mode: per_user
+credentials:
+  - name: SSH_HOST
+    description: "Target Linux server IP address or hostname (or omit to connect dynamically via ssh_connect)."
+    required: false
+    placeholder: "192.168.1.100"
+  - name: SSH_PORT
+    description: "SSH daemon TCP port (default: 22)."
+    required: false
+    placeholder: "22"
+  - name: SSH_USERNAME
+    description: "SSH login username (default: root)."
+    required: false
+    placeholder: "ubuntu"
+  - name: SSH_PASSWORD
+    description: "SSH password for password-based authentication (optional if using SSH_KEY_PATH or ssh_connect)."
+    required: false
+    placeholder: "your-ssh-password"
+  - name: SSH_KEY_PATH
+    description: "Path to SSH private key file (optional alternative to SSH_PASSWORD)."
+    required: false
+    placeholder: "/tmp/id_ed25519"
+  - name: SSH_MCP_CACHE_DIR
+    description: "Optional writable directory for local session credential cache."
+    required: false
+    placeholder: "/tmp/ssh-mcp-cache"

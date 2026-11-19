@@ -8,6 +8,20 @@
 
 ---
 
+## 🚀 Hosted Cloud (MCPize.com) & Pro Agent Skill Bundles (Agensi.io)
+
+Use this server locally for free over `stdio` (`uvx`), or subscribe to the hosted cloud endpoints on **[MCPize.com](https://mcpize.com)** paired with production `SKILL.md` playbooks on **[Agensi.io](https://agensi.io)**:
+
+| Tier | Offering | Cloud Runtime ([MCPize.com](https://mcpize.com)) | Pro Playbook ([Agensi.io](https://agensi.io)) | What's Included |
+| :--- | :--- | :---: | :---: | :--- |
+| **Free Demo** | Starter Access | `$0` *(25 read-only calls/mo)* | `github-mcp-lite` (`$0`) | Free read-only trial tier |
+| **Individual Pro** *(This Repo)* | **`linux-ssh-mcp`** | **`$19/mo`** *(`pawangunjkar-linux-ssh-mcp`)* | `linux-ssh-mcp-pro` (`$19`) | All **62 Linux SSH, systemd & Docker tools** + 5 host recovery playbooks |
+| **3-in-1 Bundle** | **Production SRE & Host Incident Triage** *(Saves 32%)* | **`$39/mo`** *(`pawangunjkar-bundle-sre-incident-triage-mcp`)* | Bundle 3 (`$39`) | `k8s-mcp` (23) + `observability-mcp` (15) + `linux-ssh-mcp` (62) = **100 tools** |
+| **3-in-1 Bundles** | **Cloud-Native DevOps** \| **Enterprise Release** | **`$39/mo`** each | Bundle 1 \| Bundle 2 (`$39`) | `github+k8s+obs` (118 tools) \| `jenkins+artifact+k8s` (88 tools) |
+| **6-in-1 Master Suite** | **Enterprise SDLC Orchestrator** *(Saves 37%)* | **`$69/mo`** *(`pawangunjkar-enterprise-sdlc-suite`)* | `enterprise-sdlc-orchestrator` (`$69`) | **All 6 MCP servers unified (245 tools)** + end-to-end SDLC/SRE workflows |
+
+---
+
 ## 📋 Table of Contents
 
 - [Overview](#-overview)
