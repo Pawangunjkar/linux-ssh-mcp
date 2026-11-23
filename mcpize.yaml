@@ -37,3 +37,7 @@ credentials:
     description: "Optional writable directory for local session credential cache."
     required: false
     placeholder: "/tmp/ssh-mcp-cache"
+  - name: SSH_HOST_KEY_POLICY
+    description: "Host key verification: 'accept-new' (default, trust on first use and refuse changed keys), 'strict' (known_hosts only), or 'insecure' (no verification)."
+    required: false
+    placeholder: "accept-new"

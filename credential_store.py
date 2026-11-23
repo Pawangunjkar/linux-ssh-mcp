@@ -1,7 +1,7 @@
 """
 Credential Store for Linux SSH MCP Server.
 
-Author: Pawan Gunjkar (pawangunjkar@gamil.com)
+Author: Pawan Gunjkar (pawangunjkar@gmail.com)
 
 Manages SSH credentials with a layered lookup strategy:
 1. Environment variables (SSH_HOST, SSH_USERNAME, SSH_PASSWORD, etc.)
@@ -43,10 +43,10 @@ class SSHCredentials:
         )
 
     def masked_dict(self) -> dict:
-        """Return dict with password masked (for display)."""
+        """Return dict with the password fully hidden (for display). No characters are revealed."""
         d = self.to_dict()
-        if "password" in d and d["password"]:
-            d["password"] = "****" + d["password"][-2:] if len(d["password"]) > 2 else "****"
+        if d.get("password"):
+            d["password"] = "(saved)"
         return d
 
 
@@ -75,6 +75,11 @@ class CredentialStore:
         self._cache_file = self._cache_dir / "credentials.json"
         self._ensure_cache_dir()
         self._load_file_cache()
+
+    @property
+    def cache_dir(self) -> Path:
+        """Directory holding the credential cache and this server's known_hosts file."""
+        return self._cache_dir
 
     def _ensure_cache_dir(self):
         """Create cache directory if it doesn't exist."""

@@ -1,7 +1,7 @@
 """
 Linux SSH MCP Server — Main Entry Point.
 
-Author: Pawan Gunjkar (pawangunjkar@gamil.com)
+Author: Pawan Gunjkar (pawangunjkar@gmail.com)
 
 A comprehensive MCP server providing 50+ SSH tools across 12 categories
 for managing remote Linux machines via AI assistants.
@@ -11,8 +11,12 @@ Usage:
     uv run mcp dev server.py        # Run with MCP Inspector (for testing)
 """
 
-import sys
 import os
+import posixpath
+import re
+import shlex
+import sys
+import time
 from mcp.server.fastmcp import FastMCP
 
 from ssh_manager import SSHManager
@@ -176,11 +180,83 @@ def ssh_list_saved_credentials() -> str:
     lines = ["📋 Saved Credentials:\n"]
     for name, creds in sessions.items():
         lines.append(f"  • {name}: {creds.get('username', '?')}@{creds.get('host', '?')}:{creds.get('port', 22)}")
-        if "password" in creds:
-            lines.append(f"    Password: {creds['password']}")
+        if creds.get("password"):
+            lines.append("    Password: (saved, hidden)")
         if "key_path" in creds:
             lines.append(f"    Key: {creds['key_path']}")
     return "\n".join(lines)
+
+
+# ============================================================
+# Argument safety helpers
+# ============================================================
+#
+# Every value that reaches a remote shell goes through one of these helpers:
+# _p() quotes a path, _q() quotes any other text, and the _valid_* helpers reject
+# names that could be read as shell syntax or as command-line options.
+
+_HOST_RE = re.compile(r"^[A-Za-z0-9_.:\[\]%-]{1,253}$")
+_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.@:+=~-]{0,254}$")
+_USER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}\$?$")
+_SIGNAL_RE = re.compile(r"^(SIG)?[A-Z][A-Z0-9+-]{0,15}$|^\d{1,2}$")
+_MODE_RE = re.compile(r"^[0-7]{3,4}$|^[ugoa]*[-+=][rwxXst]*(,[ugoa]*[-+=][rwxXst]*)*$")
+_SIZE_RE = re.compile(r"^[+-]?\d+[cwbkMG]?$")
+_CRON_RE = re.compile(
+    r"^(@(reboot|yearly|annually|monthly|weekly|daily|midnight|hourly)"
+    r"|[0-9*,/\-A-Za-z]+\s+[0-9*,/\-A-Za-z]+\s+[0-9*,/\-A-Za-z?LW#]+\s+[0-9*,/\-A-Za-z]+\s+[0-9*,/\-A-Za-z?L#]+)$"
+)
+_PROTECTED_PATHS = {
+    "/", "/*", ".", "..", "~", "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/lib64",
+    "/opt", "/proc", "/root", "/sbin", "/srv", "/sys", "/usr", "/var",
+}
+
+
+def _q(value) -> str:
+    """Shell-quote any value so the remote shell treats it as one literal word."""
+    return shlex.quote(str(value))
+
+
+def _p(path: str) -> str:
+    """Shell-quote a path; a leading '-' gets './' so it can never be read as an option."""
+    value = str(path)
+    if value.startswith("-"):
+        value = "./" + value
+    return shlex.quote(value)
+
+
+def _valid(value: str, pattern: re.Pattern, what: str) -> str:
+    text = (value or "").strip()
+    if not pattern.fullmatch(text) or text.startswith("-"):
+        raise ValueError(f"❌ Invalid {what}: {value!r}")
+    return text
+
+
+def _clamp(value, low: int, high: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        number = low
+    return max(low, min(number, high))
+
+
+def _guarded(func):
+    """Turn validation errors into a normal tool message instead of an exception."""
+    import functools
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except ValueError as exc:
+            message = str(exc)
+            return message if message.startswith("❌") else f"❌ {message}"
+
+    return wrapper
+
+
+def _done(result, success: str) -> str:
+    """Return `success` when the command exited 0, otherwise the full formatted failure."""
+    return success if result.ok else result.format()
 
 
 # ============================================================
@@ -191,9 +267,10 @@ def ssh_list_saved_credentials() -> str:
 def ssh_execute(command: str, session_name: str = "default", timeout: int = 30) -> str:
     """
     Execute a shell command on the remote Linux machine.
-    
+
     Returns stdout, stderr, and exit code. Output is truncated if too large.
-    
+    The timeout is enforced: a command still running when it expires is stopped.
+
     Args:
         command: Shell command to execute (e.g., 'ls -la /var/log')
         session_name: SSH session to use (default: 'default')
@@ -206,43 +283,44 @@ def ssh_execute(command: str, session_name: str = "default", timeout: int = 30) 
 def ssh_execute_script(script: str, session_name: str = "default", timeout: int = 60) -> str:
     """
     Execute a multi-line bash script on the remote machine.
-    
-    The script is passed to bash via stdin. Use this for complex operations.
-    
+
+    The script is sent to `bash -s` on stdin, so quotes, heredocs, and special
+    characters inside it need no escaping.
+
     Args:
         script: Multi-line bash script content
         session_name: SSH session to use (default: 'default')
         timeout: Script timeout in seconds (default: 60, max: 300)
     """
-    # Escape single quotes in script and wrap in bash -c
-    escaped = script.replace("'", "'\\''")
-    command = f"bash -c '{escaped}'"
-    return _ssh.execute(command, session_name=session_name, timeout=timeout)
+    return _ssh.execute("bash -s", session_name=session_name, timeout=timeout, stdin_data=script)
 
 
 @mcp.tool()
 def ssh_execute_background(command: str, log_file: str = "", session_name: str = "default") -> str:
     """
     Run a command in the background using nohup.
-    
+
     The command will continue running even after the SSH session ends.
     Output is redirected to a log file.
-    
+
     Args:
         command: Command to run in background
         log_file: Path for output log (default: /tmp/bg_command_<timestamp>.log)
         session_name: SSH session to use (default: 'default')
     """
     if not log_file:
-        log_file = f"/tmp/bg_command_$(date +%s).log"
-    
-    bg_cmd = f"nohup {command} > {log_file} 2>&1 & echo $!"
-    result = _ssh.execute(bg_cmd, session_name=session_name, timeout=10)
-    
-    if result and not result.startswith("❌"):
-        pid = result.strip().split("\n")[-1].strip()
-        return f"✅ Command started in background\n  PID: {pid}\n  Log: {log_file}\n\nUse ssh_execute('cat {log_file}') to check output."
-    return result
+        log_file = f"/tmp/bg_command_{int(time.time())}.log"
+
+    bg_cmd = f"nohup sh -c {_q(command)} > {_p(log_file)} 2>&1 < /dev/null & echo $!"
+    result = _ssh.run(bg_cmd, session_name=session_name, timeout=10)
+    if not result.ok:
+        return result.format()
+
+    pid = result.stdout.strip().split("\n")[-1].strip()
+    return (
+        f"✅ Command started in background\n  PID: {pid}\n  Log: {log_file}\n\n"
+        f"Use ssh_tail_file(path='{log_file}') to check output."
+    )
 
 
 # ============================================================
@@ -253,145 +331,154 @@ def ssh_execute_background(command: str, log_file: str = "", session_name: str =
 def ssh_list_directory(path: str = "/", session_name: str = "default", show_hidden: bool = True) -> str:
     """
     List directory contents with details (permissions, owner, size, date).
-    
+
+    The path is taken literally (no wildcard expansion); use ssh_find_files for patterns.
+
     Args:
         path: Directory path to list (default: '/')
         session_name: SSH session to use
         show_hidden: Include hidden files (default: True)
     """
     flag = "-la" if show_hidden else "-l"
-    return _ssh.execute(f"ls {flag} {path}", session_name=session_name)
+    return _ssh.execute(f"ls {flag} {_p(path)}", session_name=session_name)
 
 
 @mcp.tool()
 def ssh_create_directory(path: str, session_name: str = "default") -> str:
     """
     Create a directory (and parent directories if needed).
-    
+
     Args:
         path: Directory path to create (uses mkdir -p)
         session_name: SSH session to use
     """
-    result = _ssh.execute(f"mkdir -p {path} && echo 'Directory created: {path}'", session_name=session_name)
-    return result
+    result = _ssh.run(f"mkdir -p {_p(path)}", session_name=session_name)
+    return _done(result, f"✅ Directory created: {path}")
 
 
 @mcp.tool()
 def ssh_read_file(path: str, session_name: str = "default", max_lines: int = 0) -> str:
     """
     Read the contents of a file on the remote machine.
-    
+
     Args:
         path: Absolute path to the file
         session_name: SSH session to use
         max_lines: Maximum number of lines to read (0 = all lines)
     """
     if max_lines > 0:
-        return _ssh.execute(f"head -n {max_lines} {path}", session_name=session_name)
-    return _ssh.execute(f"cat {path}", session_name=session_name)
+        return _ssh.execute(f"head -n {int(max_lines)} {_p(path)}", session_name=session_name)
+    return _ssh.execute(f"cat {_p(path)}", session_name=session_name)
 
 
 @mcp.tool()
 def ssh_write_file(path: str, content: str, session_name: str = "default", append: bool = False) -> str:
     """
     Write content to a file on the remote machine.
-    
+
+    Uses SFTP, so the content is stored byte-for-byte (no shell interpretation).
+
     Args:
         path: Absolute path to the file
         content: Content to write
         session_name: SSH session to use
         append: If True, append to file instead of overwriting
     """
-    operator = ">>" if append else ">"
-    # Use heredoc for safe content writing
-    escaped_content = content.replace("\\", "\\\\").replace("$", "\\$").replace("`", "\\`")
-    command = f'cat {operator} {path} << \'MCPEOF\'\n{content}\nMCPEOF'
-    result = _ssh.execute(command, session_name=session_name, timeout=10)
-    
-    if not result.startswith("❌"):
-        action = "Appended to" if append else "Written to"
-        return f"✅ {action} {path} ({len(content)} bytes)"
-    return result
+    ok, message = _ssh.write_file(path, content, session_name=session_name, append=append)
+    if not ok:
+        return message
+    action = "Appended to" if append else "Written to"
+    return f"✅ {action} {path} ({len(content.encode('utf-8'))} bytes)"
 
 
 @mcp.tool()
+@_guarded
 def ssh_delete(path: str, session_name: str = "default", recursive: bool = False) -> str:
     """
     Delete a file or directory on the remote machine.
-    
+
+    System directories such as '/', '/etc', or '/usr' are refused.
+
     Args:
         path: Path to delete
         session_name: SSH session to use
         recursive: If True, delete directories recursively (rm -rf)
     """
-    if recursive:
-        cmd = f"rm -rf {path} && echo 'Deleted: {path}'"
-    else:
-        cmd = f"rm -f {path} && echo 'Deleted: {path}'"
-    return _ssh.execute(cmd, session_name=session_name)
+    normalized = posixpath.normpath(path.strip()) if path.strip() else ""
+    if not normalized or normalized in _PROTECTED_PATHS or path.strip() in _PROTECTED_PATHS:
+        raise ValueError(f"❌ Refusing to delete protected path {path!r}.")
+    flag = "-rf" if recursive else "-f"
+    result = _ssh.run(f"rm {flag} {_p(path)}", session_name=session_name)
+    return _done(result, f"✅ Deleted: {path}")
 
 
 @mcp.tool()
 def ssh_move(source: str, destination: str, session_name: str = "default") -> str:
     """
     Move or rename a file/directory.
-    
+
     Args:
         source: Source path
         destination: Destination path
         session_name: SSH session to use
     """
-    return _ssh.execute(f"mv {source} {destination} && echo 'Moved: {source} → {destination}'", session_name=session_name)
+    result = _ssh.run(f"mv {_p(source)} {_p(destination)}", session_name=session_name)
+    return _done(result, f"✅ Moved: {source} → {destination}")
 
 
 @mcp.tool()
 def ssh_copy(source: str, destination: str, session_name: str = "default", recursive: bool = False) -> str:
     """
     Copy a file or directory.
-    
+
     Args:
         source: Source path
         destination: Destination path
         session_name: SSH session to use
         recursive: If True, copy directories recursively
     """
-    flag = "-r" if recursive else ""
-    return _ssh.execute(f"cp {flag} {source} {destination} && echo 'Copied: {source} → {destination}'", session_name=session_name)
+    flag = "-r " if recursive else ""
+    result = _ssh.run(f"cp {flag}{_p(source)} {_p(destination)}", session_name=session_name)
+    return _done(result, f"✅ Copied: {source} → {destination}")
 
 
 @mcp.tool()
 def ssh_file_info(path: str, session_name: str = "default") -> str:
     """
     Get detailed information about a file (size, type, permissions, owner, timestamps).
-    
+
     Args:
         path: Path to the file
         session_name: SSH session to use
     """
-    cmd = f"stat {path} 2>/dev/null && echo '---' && file {path} 2>/dev/null"
+    cmd = f"stat {_p(path)} && echo '---' && file {_p(path)}"
     return _ssh.execute(cmd, session_name=session_name)
 
 
 @mcp.tool()
+@_guarded
 def ssh_file_permissions(path: str, permissions: str, session_name: str = "default", recursive: bool = False) -> str:
     """
     Change file permissions (chmod).
-    
+
     Args:
         path: Path to file/directory
         permissions: Permission string (e.g., '755', '644', 'u+x')
         session_name: SSH session to use
         recursive: Apply recursively to directories
     """
-    flag = "-R" if recursive else ""
-    return _ssh.execute(f"chmod {flag} {permissions} {path} && echo 'Permissions set: {path} → {permissions}'", session_name=session_name)
+    mode = _valid(permissions, _MODE_RE, "permission string")
+    flag = "-R " if recursive else ""
+    result = _ssh.run(f"chmod {flag}{mode} {_p(path)}", session_name=session_name)
+    return _done(result, f"✅ Permissions set: {path} → {mode}")
 
 
 @mcp.tool()
+@_guarded
 def ssh_change_owner(path: str, owner: str, group: str = "", session_name: str = "default", recursive: bool = False) -> str:
     """
     Change file ownership (chown).
-    
+
     Args:
         path: Path to file/directory
         owner: New owner username
@@ -399,12 +486,18 @@ def ssh_change_owner(path: str, owner: str, group: str = "", session_name: str =
         session_name: SSH session to use
         recursive: Apply recursively
     """
-    ownership = f"{owner}:{group}" if group else owner
-    flag = "-R" if recursive else ""
-    return _ssh.execute(f"chown {flag} {ownership} {path} && echo 'Owner changed: {path} → {ownership}'", session_name=session_name)
+    owner = _valid(owner, _USER_RE if not owner.isdigit() else re.compile(r"^\d+$"), "owner")
+    ownership = owner
+    if group:
+        group = _valid(group, _USER_RE if not group.isdigit() else re.compile(r"^\d+$"), "group")
+        ownership = f"{owner}:{group}"
+    flag = "-R " if recursive else ""
+    result = _ssh.run(f"chown {flag}{_q(ownership)} {_p(path)}", session_name=session_name)
+    return _done(result, f"✅ Owner changed: {path} → {ownership}")
 
 
 @mcp.tool()
+@_guarded
 def ssh_find_files(
     path: str = "/",
     name: str = "",
@@ -415,26 +508,32 @@ def ssh_find_files(
 ) -> str:
     """
     Find files and directories using the 'find' command with filters.
-    
+
     Args:
         path: Base directory to search in
         name: File name pattern (supports wildcards, e.g., '*.log')
         file_type: Type filter — 'f' for files, 'd' for directories, 'l' for symlinks
         size: Size filter (e.g., '+10M' for >10MB, '-1k' for <1KB)
-        modified_within: Time filter (e.g., '7' for modified in last 7 days)
+        modified_within: Time filter in days (e.g., '7' for modified in last 7 days)
         session_name: SSH session to use
     """
-    cmd_parts = [f"find {path}"]
+    cmd_parts = [f"find {_p(path)}"]
     if name:
-        cmd_parts.append(f"-name '{name}'")
+        cmd_parts.append(f"-name {_q(name)}")
     if file_type:
+        if file_type not in ("f", "d", "l", "b", "c", "p", "s"):
+            raise ValueError(f"❌ file_type must be one of f, d, l, b, c, p, s (got {file_type!r}).")
         cmd_parts.append(f"-type {file_type}")
     if size:
-        cmd_parts.append(f"-size {size}")
+        if not _SIZE_RE.fullmatch(size.strip()):
+            raise ValueError(f"❌ Invalid size filter: {size!r} (examples: +10M, -1k, 100c)")
+        cmd_parts.append(f"-size {size.strip()}")
     if modified_within:
-        cmd_parts.append(f"-mtime -{modified_within}")
+        if not str(modified_within).isdigit():
+            raise ValueError(f"❌ modified_within must be a whole number of days (got {modified_within!r}).")
+        cmd_parts.append(f"-mtime -{int(modified_within)}")
     cmd_parts.append("2>/dev/null | head -100")
-    
+
     return _ssh.execute(" ".join(cmd_parts), session_name=session_name)
 
 
@@ -442,12 +541,12 @@ def ssh_find_files(
 def ssh_disk_file_usage(path: str, session_name: str = "default") -> str:
     """
     Check disk usage of a file or directory (du -sh).
-    
+
     Args:
         path: Path to check
         session_name: SSH session to use
     """
-    return _ssh.execute(f"du -sh {path} 2>/dev/null", session_name=session_name)
+    return _ssh.execute(f"du -sh {_p(path)}", session_name=session_name)
 
 
 # ============================================================
@@ -464,7 +563,7 @@ def ssh_search_in_files(
 ) -> str:
     """
     Search for a pattern in files using grep.
-    
+
     Args:
         pattern: Search pattern (text or regex)
         path: File or directory to search in
@@ -477,34 +576,37 @@ def ssh_search_in_files(
         flags += "i"
     if recursive:
         flags += "r"
-    
-    return _ssh.execute(f"grep {flags} '{pattern}' {path} 2>/dev/null | head -100", session_name=session_name)
+
+    return _ssh.execute(
+        f"grep {flags} -e {_q(pattern)} {_p(path)} 2>/dev/null | head -100",
+        session_name=session_name,
+    )
 
 
 @mcp.tool()
 def ssh_tail_file(path: str, lines: int = 50, session_name: str = "default") -> str:
     """
     Get the last N lines of a file (useful for logs).
-    
+
     Args:
         path: Path to the file
-        lines: Number of lines from the end (default: 50)
+        lines: Number of lines from the end (default: 50, max: 5000)
         session_name: SSH session to use
     """
-    return _ssh.execute(f"tail -n {lines} {path}", session_name=session_name)
+    return _ssh.execute(f"tail -n {_clamp(lines, 1, 5000)} {_p(path)}", session_name=session_name)
 
 
 @mcp.tool()
 def ssh_head_file(path: str, lines: int = 50, session_name: str = "default") -> str:
     """
     Get the first N lines of a file.
-    
+
     Args:
         path: Path to the file
-        lines: Number of lines from the beginning (default: 50)
+        lines: Number of lines from the beginning (default: 50, max: 5000)
         session_name: SSH session to use
     """
-    return _ssh.execute(f"head -n {lines} {path}", session_name=session_name)
+    return _ssh.execute(f"head -n {_clamp(lines, 1, 5000)} {_p(path)}", session_name=session_name)
 
 
 @mcp.tool()
@@ -516,7 +618,7 @@ def ssh_search_logs(
 ) -> str:
     """
     Search system logs using journalctl or grep.
-    
+
     Args:
         pattern: Search pattern
         log_path: Specific log file path (if empty, uses journalctl)
@@ -524,13 +626,18 @@ def ssh_search_logs(
         since: Time filter for journalctl (e.g., '1 hour ago', '2024-01-01', 'today')
     """
     if log_path:
-        return _ssh.execute(f"grep -n '{pattern}' {log_path} 2>/dev/null | tail -100", session_name=session_name)
-    else:
-        since_flag = f"--since='{since}'" if since else ""
         return _ssh.execute(
-            f"journalctl {since_flag} --no-pager 2>/dev/null | grep '{pattern}' | tail -100",
+            f"grep -n -e {_q(pattern)} {_p(log_path)} 2>/dev/null | tail -100",
             session_name=session_name,
         )
+    since_flag = f"--since={_q(since)} " if since else ""
+    return _ssh.execute(
+        f"journalctl {since_flag}--no-pager 2>/dev/null | grep -e {_q(pattern)} | tail -100",
+        session_name=session_name,
+    )
+
+
+_BRE_SPECIAL = re.compile(r"([\\/.*\[\]^$])")
 
 
 @mcp.tool()
@@ -540,28 +647,38 @@ def ssh_sed_replace(
     replace: str,
     session_name: str = "default",
     backup: bool = True,
+    use_regex: bool = False,
 ) -> str:
     """
     Find and replace text in a file using sed.
-    
+
+    By default `find` is matched as literal text. Set use_regex=True to treat it
+    as a sed basic regular expression.
+
     Args:
         file_path: Path to the file
-        find: Text pattern to find
-        replace: Replacement text
+        find: Text (or regex when use_regex=True) to find
+        replace: Replacement text (taken literally)
         session_name: SSH session to use
         backup: Create a .bak backup before modifying (default: True)
+        use_regex: Interpret `find` as a regular expression (default: False)
     """
-    backup_flag = ".bak" if backup else ""
-    # Escape sed special characters
-    find_escaped = find.replace("/", "\\/").replace("&", "\\&")
-    replace_escaped = replace.replace("/", "\\/").replace("&", "\\&")
-    
-    cmd = f"sed -i{backup_flag} 's/{find_escaped}/{replace_escaped}/g' {file_path}"
-    result = _ssh.execute(cmd, session_name=session_name)
-    
-    if not result.startswith("❌"):
-        return f"✅ Replaced '{find}' with '{replace}' in {file_path}" + (f" (backup: {file_path}.bak)" if backup else "")
-    return result
+    if "\n" in find or "\n" in replace:
+        return "❌ ssh_sed_replace works line by line; find and replace cannot contain newlines."
+    if not find:
+        return "❌ find must not be empty."
+
+    find_expr = find.replace("/", "\\/") if use_regex else _BRE_SPECIAL.sub(r"\\\1", find)
+    replace_expr = replace.replace("\\", "\\\\").replace("/", "\\/").replace("&", "\\&")
+    backup_flag = "-i.bak" if backup else "-i"
+
+    result = _ssh.run(
+        f"sed {backup_flag} {_q(f's/{find_expr}/{replace_expr}/g')} {_p(file_path)}",
+        session_name=session_name,
+    )
+    if not result.ok:
+        return result.format()
+    return f"✅ Replaced '{find}' with '{replace}' in {file_path}" + (f" (backup: {file_path}.bak)" if backup else "")
 
 
 # ============================================================
@@ -572,7 +689,7 @@ def ssh_sed_replace(
 def ssh_system_info(session_name: str = "default") -> str:
     """
     Get comprehensive system information (OS, kernel, CPU, RAM, uptime, hostname).
-    
+
     Args:
         session_name: SSH session to use
     """
@@ -590,7 +707,7 @@ echo "=== DISK ===" && df -h / | tail -1"""
 def ssh_disk_usage(session_name: str = "default") -> str:
     """
     Show disk usage across all mounted filesystems (df -h).
-    
+
     Args:
         session_name: SSH session to use
     """
@@ -601,7 +718,7 @@ def ssh_disk_usage(session_name: str = "default") -> str:
 def ssh_memory_usage(session_name: str = "default") -> str:
     """
     Show detailed memory and swap usage.
-    
+
     Args:
         session_name: SSH session to use
     """
@@ -612,7 +729,7 @@ def ssh_memory_usage(session_name: str = "default") -> str:
 def ssh_cpu_info(session_name: str = "default") -> str:
     """
     Show CPU information, core count, and current load averages.
-    
+
     Args:
         session_name: SSH session to use
     """
@@ -627,22 +744,21 @@ echo "=== CPU Usage ===" && top -bn1 | head -5"""
 def ssh_process_list(session_name: str = "default", filter_pattern: str = "", sort_by: str = "") -> str:
     """
     List running processes with optional filtering and sorting.
-    
+
     Args:
         session_name: SSH session to use
-        filter_pattern: Filter processes by name/pattern (grep)
+        filter_pattern: Filter processes by name/pattern (case-insensitive text match)
         sort_by: Sort by 'cpu' or 'mem' (default: no sorting)
     """
-    if sort_by == "cpu":
-        cmd = "ps aux --sort=-%cpu | head -30"
-    elif sort_by == "mem":
-        cmd = "ps aux --sort=-%mem | head -30"
-    else:
-        cmd = "ps aux | head -50"
-    
+    sort_flag = {"cpu": " --sort=-%cpu", "mem": " --sort=-%mem"}.get(sort_by, "")
     if filter_pattern:
-        cmd = f"ps aux | grep -i '{filter_pattern}' | grep -v grep"
-    
+        # Keep the header line, then matching rows; exclude this pipeline's own grep.
+        cmd = (
+            f"ps aux{sort_flag} | awk 'NR==1' ; "
+            f"ps aux{sort_flag} | grep -i -F -e {_q(filter_pattern)} | grep -v -F 'grep -i -F'"
+        )
+    else:
+        cmd = f"ps aux{sort_flag} | head -{30 if sort_flag else 50}"
     return _ssh.execute(cmd, session_name=session_name)
 
 
@@ -650,35 +766,40 @@ def ssh_process_list(session_name: str = "default", filter_pattern: str = "", so
 def ssh_top_processes(session_name: str = "default", count: int = 10, sort_by: str = "cpu") -> str:
     """
     Show top N processes by CPU or memory usage.
-    
+
     Args:
         session_name: SSH session to use
-        count: Number of processes to show (default: 10)
+        count: Number of processes to show (default: 10, max: 200)
         sort_by: Sort by 'cpu' or 'mem' (default: 'cpu')
     """
     sort_field = "-%cpu" if sort_by == "cpu" else "-%mem"
-    return _ssh.execute(f"ps aux --sort={sort_field} | head -n {count + 1}", session_name=session_name)
+    return _ssh.execute(f"ps aux --sort={sort_field} | head -n {_clamp(count, 1, 200) + 1}", session_name=session_name)
 
 
 @mcp.tool()
+@_guarded
 def ssh_kill_process(pid: int, session_name: str = "default", signal: str = "TERM") -> str:
     """
     Kill a process by its PID.
-    
+
     Args:
         pid: Process ID to kill
         session_name: SSH session to use
         signal: Signal to send (default: TERM, options: KILL, HUP, INT, etc.)
     """
-    result = _ssh.execute(f"kill -{signal} {pid} 2>&1 && echo 'Process {pid} killed with signal {signal}'", session_name=session_name)
-    return result
+    sig = _valid(signal.upper(), _SIGNAL_RE, "signal")
+    pid_value = int(pid)
+    if pid_value <= 1:
+        raise ValueError("❌ Refusing to signal PID 0/1 or a negative PID (that would hit init or a process group).")
+    result = _ssh.run(f"kill -{sig} {pid_value}", session_name=session_name)
+    return _done(result, f"✅ Process {pid_value} sent signal {sig}")
 
 
 @mcp.tool()
 def ssh_system_load(session_name: str = "default") -> str:
     """
     Show system load averages (1, 5, 15 minutes) and running process count.
-    
+
     Args:
         session_name: SSH session to use
     """
@@ -693,7 +814,7 @@ def ssh_system_load(session_name: str = "default") -> str:
 def ssh_network_info(session_name: str = "default") -> str:
     """
     Show network interfaces, IP addresses, and basic network configuration.
-    
+
     Args:
         session_name: SSH session to use
     """
@@ -705,7 +826,7 @@ def ssh_network_info(session_name: str = "default") -> str:
 def ssh_open_ports(session_name: str = "default") -> str:
     """
     List all listening (open) ports and the processes using them.
-    
+
     Args:
         session_name: SSH session to use
     """
@@ -713,42 +834,59 @@ def ssh_open_ports(session_name: str = "default") -> str:
 
 
 @mcp.tool()
+@_guarded
 def ssh_check_port(host: str, port: int, session_name: str = "default") -> str:
     """
     Test if a specific port is reachable from the remote machine.
-    
+
     Args:
         host: Target hostname or IP
         port: Target port number
         session_name: SSH session to use
     """
-    cmd = f"timeout 5 bash -c 'echo >/dev/tcp/{host}/{port}' 2>&1 && echo '✅ Port {port} on {host} is OPEN' || echo '❌ Port {port} on {host} is CLOSED/UNREACHABLE'"
-    return _ssh.execute(cmd, session_name=session_name, timeout=10)
+    target = _valid(host, _HOST_RE, "host")
+    port_value = int(port)
+    if not 1 <= port_value <= 65535:
+        raise ValueError("❌ port must be between 1 and 65535.")
+    probe = _q(f"echo >/dev/tcp/{target}/{port_value}")
+    result = _ssh.run(f"timeout 5 bash -c {probe}", session_name=session_name, timeout=10)
+    if result.error:
+        return result.error
+    if result.ok:
+        return f"✅ Port {port_value} on {target} is OPEN"
+    return f"❌ Port {port_value} on {target} is CLOSED/UNREACHABLE"
 
 
 @mcp.tool()
+@_guarded
 def ssh_ping(target: str, count: int = 4, session_name: str = "default") -> str:
     """
     Ping a host from the remote machine.
-    
+
     Args:
         target: Hostname or IP to ping
-        count: Number of ping packets (default: 4)
+        count: Number of ping packets (default: 4, max: 20)
         session_name: SSH session to use
     """
-    return _ssh.execute(f"ping -c {count} {target}", session_name=session_name, timeout=30)
+    host = _valid(target, _HOST_RE, "ping target")
+    return _ssh.execute(f"ping -c {_clamp(count, 1, 20)} {_q(host)}", session_name=session_name, timeout=30)
 
 
 @mcp.tool()
+@_guarded
 def ssh_dns_lookup(domain: str, session_name: str = "default") -> str:
     """
     Perform DNS lookup for a domain.
-    
+
     Args:
         domain: Domain name to look up
         session_name: SSH session to use
     """
-    return _ssh.execute(f"dig {domain} +short 2>/dev/null || nslookup {domain} 2>/dev/null || host {domain} 2>/dev/null", session_name=session_name)
+    name = _q(_valid(domain, _HOST_RE, "domain"))
+    return _ssh.execute(
+        f"dig {name} +short 2>/dev/null || nslookup {name} 2>/dev/null || host {name} 2>/dev/null",
+        session_name=session_name,
+    )
 
 
 # ============================================================
@@ -759,46 +897,55 @@ def ssh_dns_lookup(domain: str, session_name: str = "default") -> str:
 def ssh_docker_ps(session_name: str = "default", all: bool = False) -> str:
     """
     List Docker containers (running or all).
-    
+
     Args:
         session_name: SSH session to use
         all: If True, show all containers including stopped ones
     """
-    flag = "-a" if all else ""
-    return _ssh.execute(f"docker ps {flag} --format 'table {{{{.ID}}}}\\t{{{{.Names}}}}\\t{{{{.Image}}}}\\t{{{{.Status}}}}\\t{{{{.Ports}}}}'", session_name=session_name)
+    flag = "-a " if all else ""
+    return _ssh.execute(
+        f"docker ps {flag}--format 'table {{{{.ID}}}}\\t{{{{.Names}}}}\\t{{{{.Image}}}}\\t{{{{.Status}}}}\\t{{{{.Ports}}}}'",
+        session_name=session_name,
+    )
 
 
 @mcp.tool()
+@_guarded
 def ssh_docker_logs(container: str, session_name: str = "default", lines: int = 100) -> str:
     """
     Get Docker container logs.
-    
+
     Args:
         container: Container name or ID
         session_name: SSH session to use
-        lines: Number of log lines to retrieve (default: 100)
+        lines: Number of log lines to retrieve (default: 100, max: 5000)
     """
-    return _ssh.execute(f"docker logs --tail {lines} {container}", session_name=session_name)
+    name = _q(_valid(container, _NAME_RE, "container name"))
+    return _ssh.execute(f"docker logs --tail {_clamp(lines, 1, 5000)} {name} 2>&1", session_name=session_name)
 
 
 @mcp.tool()
+@_guarded
 def ssh_docker_exec(container: str, command: str, session_name: str = "default") -> str:
     """
     Execute a command inside a running Docker container.
-    
+
+    The command runs through `sh -c` inside the container.
+
     Args:
         container: Container name or ID
         command: Command to execute inside the container
         session_name: SSH session to use
     """
-    return _ssh.execute(f"docker exec {container} {command}", session_name=session_name)
+    name = _q(_valid(container, _NAME_RE, "container name"))
+    return _ssh.execute(f"docker exec {name} sh -c {_q(command)}", session_name=session_name)
 
 
 @mcp.tool()
 def ssh_docker_images(session_name: str = "default") -> str:
     """
     List Docker images on the remote machine.
-    
+
     Args:
         session_name: SSH session to use
     """
@@ -809,7 +956,7 @@ def ssh_docker_images(session_name: str = "default") -> str:
 def ssh_docker_stats(session_name: str = "default") -> str:
     """
     Show Docker container resource usage statistics (CPU, memory, network).
-    
+
     Args:
         session_name: SSH session to use
     """
@@ -820,30 +967,32 @@ def ssh_docker_stats(session_name: str = "default") -> str:
 def ssh_docker_compose(action: str, path: str = ".", session_name: str = "default") -> str:
     """
     Run docker compose commands.
-    
+
     Args:
-        action: Compose action — 'up', 'down', 'restart', 'ps', 'logs', 'build', 'pull'
+        action: Compose action — 'up', 'down', 'restart', 'ps', 'logs', 'build', 'pull', 'stop', 'start'
         path: Path to the directory containing docker-compose.yml
         session_name: SSH session to use
     """
     valid_actions = ["up", "down", "restart", "ps", "logs", "build", "pull", "stop", "start"]
     if action not in valid_actions:
         return f"❌ Invalid action '{action}'. Valid actions: {', '.join(valid_actions)}"
-    
-    extra = "-d" if action == "up" else ""
-    return _ssh.execute(f"cd {path} && docker compose {action} {extra}", session_name=session_name, timeout=120)
+
+    extra = {"up": " -d", "logs": " --tail 200"}.get(action, "")
+    return _ssh.execute(f"cd {_p(path)} && docker compose {action}{extra}", session_name=session_name, timeout=120)
 
 
 @mcp.tool()
+@_guarded
 def ssh_docker_inspect(container: str, session_name: str = "default") -> str:
     """
     Inspect a Docker container (detailed configuration and state).
-    
+
     Args:
         container: Container name or ID
         session_name: SSH session to use
     """
-    return _ssh.execute(f"docker inspect {container}", session_name=session_name)
+    name = _q(_valid(container, _NAME_RE, "container name"))
+    return _ssh.execute(f"docker inspect {name}", session_name=session_name)
 
 
 # ============================================================
@@ -852,68 +1001,77 @@ def ssh_docker_inspect(container: str, session_name: str = "default") -> str:
 
 def _detect_pkg_manager(session_name: str) -> str:
     """Detect the package manager available on the system."""
-    result = _ssh.execute(
-        "which apt-get 2>/dev/null && echo 'apt' || (which dnf 2>/dev/null && echo 'dnf' || (which yum 2>/dev/null && echo 'yum' || (which pacman 2>/dev/null && echo 'pacman' || echo 'unknown')))",
+    result = _ssh.run(
+        "for m in apt-get dnf yum pacman; do command -v $m >/dev/null 2>&1 && { echo $m; break; }; done",
         session_name=session_name,
-        timeout=5,
+        timeout=10,
     )
-    for mgr in ["apt", "dnf", "yum", "pacman"]:
-        if mgr in result:
-            return mgr
-    return "unknown"
+    found = result.stdout.strip()
+    return {"apt-get": "apt", "dnf": "dnf", "yum": "yum", "pacman": "pacman"}.get(found, "unknown")
+
+
+def _package_args(package: str) -> str:
+    names = package.split()
+    if not names:
+        raise ValueError("❌ package must not be empty.")
+    return " ".join(_q(_valid(name, _NAME_RE, "package name")) for name in names)
 
 
 @mcp.tool()
+@_guarded
 def ssh_install_package(package: str, session_name: str = "default") -> str:
     """
     Install a package (auto-detects apt/yum/dnf/pacman).
-    
+
     Args:
-        package: Package name to install
+        package: Package name to install (several names may be separated by spaces)
         session_name: SSH session to use
     """
+    names = _package_args(package)
     mgr = _detect_pkg_manager(session_name)
     commands = {
-        "apt": f"DEBIAN_FRONTEND=noninteractive apt-get install -y {package}",
-        "dnf": f"dnf install -y {package}",
-        "yum": f"yum install -y {package}",
-        "pacman": f"pacman -S --noconfirm {package}",
+        "apt": f"DEBIAN_FRONTEND=noninteractive apt-get install -y {names}",
+        "dnf": f"dnf install -y {names}",
+        "yum": f"yum install -y {names}",
+        "pacman": f"pacman -S --noconfirm {names}",
     }
     if mgr not in commands:
         return "❌ Could not detect package manager (apt/dnf/yum/pacman)"
-    
-    return _ssh.execute(commands[mgr], session_name=session_name, timeout=120)
+
+    return _ssh.execute(commands[mgr], session_name=session_name, timeout=300)
 
 
 @mcp.tool()
+@_guarded
 def ssh_remove_package(package: str, session_name: str = "default") -> str:
     """
     Remove/uninstall a package.
-    
+
     Args:
-        package: Package name to remove
+        package: Package name to remove (several names may be separated by spaces)
         session_name: SSH session to use
     """
+    names = _package_args(package)
     mgr = _detect_pkg_manager(session_name)
     commands = {
-        "apt": f"apt-get remove -y {package}",
-        "dnf": f"dnf remove -y {package}",
-        "yum": f"yum remove -y {package}",
-        "pacman": f"pacman -R --noconfirm {package}",
+        "apt": f"DEBIAN_FRONTEND=noninteractive apt-get remove -y {names}",
+        "dnf": f"dnf remove -y {names}",
+        "yum": f"yum remove -y {names}",
+        "pacman": f"pacman -R --noconfirm {names}",
     }
     if mgr not in commands:
         return "❌ Could not detect package manager"
-    
-    return _ssh.execute(commands[mgr], session_name=session_name, timeout=60)
+
+    return _ssh.execute(commands[mgr], session_name=session_name, timeout=180)
 
 
 @mcp.tool()
 def ssh_list_packages(filter_pattern: str = "", session_name: str = "default") -> str:
     """
     List installed packages with optional filter.
-    
+
     Args:
-        filter_pattern: Filter packages by name pattern
+        filter_pattern: Filter packages by name (case-insensitive text match)
         session_name: SSH session to use
     """
     mgr = _detect_pkg_manager(session_name)
@@ -925,35 +1083,35 @@ def ssh_list_packages(filter_pattern: str = "", session_name: str = "default") -
     }
     if mgr not in commands:
         return "❌ Could not detect package manager"
-    
+
     cmd = commands[mgr]
     if filter_pattern:
-        cmd += f" | grep -i '{filter_pattern}'"
+        cmd += f" | grep -i -F -e {_q(filter_pattern)}"
     else:
         cmd += " | head -50"
-    
-    return _ssh.execute(cmd, session_name=session_name)
+
+    return _ssh.execute(cmd, session_name=session_name, timeout=60)
 
 
 @mcp.tool()
 def ssh_check_updates(session_name: str = "default") -> str:
     """
     Check for available package updates.
-    
+
     Args:
         session_name: SSH session to use
     """
     mgr = _detect_pkg_manager(session_name)
     commands = {
         "apt": "apt list --upgradable 2>/dev/null",
-        "dnf": "dnf check-update 2>/dev/null",
-        "yum": "yum check-update 2>/dev/null",
-        "pacman": "pacman -Qu 2>/dev/null",
+        "dnf": "dnf check-update 2>/dev/null; true",
+        "yum": "yum check-update 2>/dev/null; true",
+        "pacman": "pacman -Qu 2>/dev/null; true",
     }
     if mgr not in commands:
         return "❌ Could not detect package manager"
-    
-    return _ssh.execute(commands[mgr], session_name=session_name, timeout=60)
+
+    return _ssh.execute(commands[mgr], session_name=session_name, timeout=120)
 
 
 # ============================================================
@@ -964,7 +1122,7 @@ def ssh_check_updates(session_name: str = "default") -> str:
 def ssh_list_users(session_name: str = "default") -> str:
     """
     List system users (human accounts with login shells).
-    
+
     Args:
         session_name: SSH session to use
     """
@@ -973,15 +1131,17 @@ def ssh_list_users(session_name: str = "default") -> str:
 
 
 @mcp.tool()
+@_guarded
 def ssh_user_info(username: str, session_name: str = "default") -> str:
     """
     Get detailed information about a specific user.
-    
+
     Args:
         username: Username to look up
         session_name: SSH session to use
     """
-    cmd = f"id {username} && echo '---' && grep '^{username}:' /etc/passwd && echo '---' && groups {username}"
+    user = _q(_valid(username, _USER_RE, "username"))
+    cmd = f"id {user} && echo '---' && getent passwd {user} && echo '---' && groups {user}"
     return _ssh.execute(cmd, session_name=session_name)
 
 
@@ -989,7 +1149,7 @@ def ssh_user_info(username: str, session_name: str = "default") -> str:
 def ssh_whoami(session_name: str = "default") -> str:
     """
     Show current user, groups, and environment info.
-    
+
     Args:
         session_name: SSH session to use
     """
@@ -1001,12 +1161,13 @@ def ssh_whoami(session_name: str = "default") -> str:
 def ssh_last_logins(session_name: str = "default", count: int = 20) -> str:
     """
     Show recent login history.
-    
+
     Args:
         session_name: SSH session to use
-        count: Number of recent logins to show (default: 20)
+        count: Number of recent logins to show (default: 20, max: 500)
     """
-    return _ssh.execute(f"last -n {count} 2>/dev/null || last | head -n {count}", session_name=session_name)
+    n = _clamp(count, 1, 500)
+    return _ssh.execute(f"last -n {n} 2>/dev/null || last | head -n {n}", session_name=session_name)
 
 
 # ============================================================
@@ -1014,46 +1175,70 @@ def ssh_last_logins(session_name: str = "default", count: int = 20) -> str:
 # ============================================================
 
 @mcp.tool()
+@_guarded
 def ssh_list_cron(user: str = "", session_name: str = "default") -> str:
     """
     List cron jobs for the current or specified user.
-    
+
     Args:
         user: Username (empty = current user)
         session_name: SSH session to use
     """
     if user:
-        cmd = f"crontab -l -u {user} 2>/dev/null || echo 'No crontab for {user}'"
+        name = _valid(user, _USER_RE, "username")
+        cmd = f"crontab -l -u {_q(name)} 2>/dev/null || echo {_q('No crontab for ' + name)}"
     else:
         cmd = "crontab -l 2>/dev/null || echo 'No crontab for current user'"
     return _ssh.execute(cmd, session_name=session_name)
 
 
 @mcp.tool()
+@_guarded
 def ssh_add_cron(schedule: str, command: str, session_name: str = "default") -> str:
     """
     Add a new cron job for the current user.
-    
+
     Args:
-        schedule: Cron schedule expression (e.g., '0 2 * * *' for daily at 2am)
+        schedule: Cron schedule expression (e.g., '0 2 * * *' for daily at 2am, or '@daily')
         command: Command to run
         session_name: SSH session to use
     """
-    cmd = f"(crontab -l 2>/dev/null; echo '{schedule} {command}') | crontab - && echo '✅ Cron job added: {schedule} {command}'"
-    return _ssh.execute(cmd, session_name=session_name)
+    sched = " ".join(schedule.split())
+    if not _CRON_RE.fullmatch(sched):
+        raise ValueError(f"❌ Invalid cron schedule {schedule!r}. Use five fields like '0 2 * * *' or '@daily'.")
+    if "\n" in command or "\r" in command or not command.strip():
+        raise ValueError("❌ command must be a single non-empty line.")
+    line = f"{sched} {command.strip()}"
+    result = _ssh.run(
+        f"(crontab -l 2>/dev/null; printf '%s\\n' {_q(line)}) | crontab -",
+        session_name=session_name,
+    )
+    return _done(result, f"✅ Cron job added: {line}")
 
 
 @mcp.tool()
+@_guarded
 def ssh_remove_cron(pattern: str, session_name: str = "default") -> str:
     """
-    Remove cron jobs matching a pattern.
-    
+    Remove cron jobs whose line contains the given text.
+
     Args:
-        pattern: Pattern to match (lines containing this will be removed)
+        pattern: Text to match (lines containing it are removed; matched literally)
         session_name: SSH session to use
     """
-    cmd = f"crontab -l 2>/dev/null | grep -v '{pattern}' | crontab - && echo '✅ Removed cron jobs matching: {pattern}'"
-    return _ssh.execute(cmd, session_name=session_name)
+    if not pattern.strip():
+        raise ValueError("❌ pattern must not be empty (an empty pattern would remove every cron job).")
+    count = _ssh.run(f"crontab -l 2>/dev/null | grep -c -F -e {_q(pattern)}", session_name=session_name)
+    if count.error:
+        return count.error
+    matches = int(count.stdout.strip() or 0) if count.stdout.strip().isdigit() else 0
+    if matches == 0:
+        return f"ℹ️ No cron jobs contain {pattern!r}. Nothing changed."
+    result = _ssh.run(
+        f"{{ crontab -l 2>/dev/null | grep -v -F -e {_q(pattern)}; true; }} | crontab -",
+        session_name=session_name,
+    )
+    return _done(result, f"✅ Removed {matches} cron job(s) containing {pattern!r}")
 
 
 # ============================================================
@@ -1064,91 +1249,89 @@ def ssh_remove_cron(pattern: str, session_name: str = "default") -> str:
 def ssh_compress(source: str, destination: str = "", session_name: str = "default", format: str = "tar.gz") -> str:
     """
     Compress files or directories into an archive.
-    
+
     Args:
         source: Path to file/directory to compress
         destination: Output archive path (auto-generated if empty)
         session_name: SSH session to use
         format: Archive format — 'tar.gz' (default), 'tar.bz2', 'zip'
     """
-    if not destination:
-        base = source.rstrip("/").split("/")[-1]
-        if format == "zip":
-            destination = f"{source}.zip"
-        elif format == "tar.bz2":
-            destination = f"{source}.tar.bz2"
-        else:
-            destination = f"{source}.tar.gz"
-    
-    commands = {
-        "tar.gz": f"tar -czf {destination} {source}",
-        "tar.bz2": f"tar -cjf {destination} {source}",
-        "zip": f"zip -r {destination} {source}",
-    }
-    
-    if format not in commands:
+    if format not in ("tar.gz", "tar.bz2", "zip"):
         return f"❌ Unsupported format '{format}'. Use: tar.gz, tar.bz2, zip"
-    
-    result = _ssh.execute(commands[format], session_name=session_name, timeout=120)
-    if not result.startswith("❌"):
-        return f"✅ Compressed {source} → {destination}"
-    return result
+    if not destination:
+        destination = f"{source.rstrip('/')}.{format}"
+
+    commands = {
+        "tar.gz": f"tar -czf {_p(destination)} {_p(source)}",
+        "tar.bz2": f"tar -cjf {_p(destination)} {_p(source)}",
+        "zip": f"zip -r {_p(destination)} {_p(source)}",
+    }
+    result = _ssh.run(commands[format], session_name=session_name, timeout=300)
+    return _done(result, f"✅ Compressed {source} → {destination}")
 
 
 @mcp.tool()
 def ssh_extract(archive: str, destination: str = ".", session_name: str = "default") -> str:
     """
     Extract an archive file.
-    
+
     Supports: .tar.gz, .tgz, .tar.bz2, .tar, .zip, .gz, .bz2
-    
+
     Args:
         archive: Path to the archive file
-        destination: Directory to extract to (default: current directory)
+        destination: Directory to extract to (default: current directory; ignored for .gz/.bz2)
         session_name: SSH session to use
     """
+    a, d = _p(archive), _p(destination)
     if archive.endswith((".tar.gz", ".tgz")):
-        cmd = f"tar -xzf {archive} -C {destination}"
+        cmd = f"tar -xzf {a} -C {d}"
     elif archive.endswith(".tar.bz2"):
-        cmd = f"tar -xjf {archive} -C {destination}"
+        cmd = f"tar -xjf {a} -C {d}"
     elif archive.endswith(".tar"):
-        cmd = f"tar -xf {archive} -C {destination}"
+        cmd = f"tar -xf {a} -C {d}"
     elif archive.endswith(".zip"):
-        cmd = f"unzip -o {archive} -d {destination}"
+        cmd = f"unzip -o {a} -d {d}"
     elif archive.endswith(".gz"):
-        cmd = f"gunzip -k {archive}"
+        cmd = f"gunzip -k {a}"
     elif archive.endswith(".bz2"):
-        cmd = f"bunzip2 -k {archive}"
+        cmd = f"bunzip2 -k {a}"
     else:
-        return f"❌ Unsupported archive format. Supported: .tar.gz, .tgz, .tar.bz2, .tar, .zip, .gz, .bz2"
-    
-    result = _ssh.execute(cmd, session_name=session_name, timeout=120)
-    if not result.startswith("❌"):
-        return f"✅ Extracted {archive} → {destination}"
-    return result
+        return "❌ Unsupported archive format. Supported: .tar.gz, .tgz, .tar.bz2, .tar, .zip, .gz, .bz2"
+
+    result = _ssh.run(cmd, session_name=session_name, timeout=300)
+    return _done(result, f"✅ Extracted {archive} → {destination}")
 
 
 # ============================================================
 # CATEGORY 12: Security & Audit (3 tools)
 # ============================================================
 
+_SERVICE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9@._:-]{0,254}$")
+
+
 @mcp.tool()
+@_guarded
 def ssh_check_service(service: str, session_name: str = "default") -> str:
     """
     Check the status of a systemd service.
-    
+
     Args:
         service: Service name (e.g., 'nginx', 'docker', 'sshd')
         session_name: SSH session to use
     """
-    return _ssh.execute(f"systemctl status {service} 2>/dev/null || service {service} status 2>/dev/null", session_name=session_name)
+    name = _q(_valid(service, _SERVICE_RE, "service name"))
+    return _ssh.execute(
+        f"systemctl status --no-pager {name} 2>/dev/null || service {name} status 2>/dev/null",
+        session_name=session_name,
+    )
 
 
 @mcp.tool()
+@_guarded
 def ssh_manage_service(service: str, action: str, session_name: str = "default") -> str:
     """
     Manage a systemd service (start, stop, restart, enable, disable).
-    
+
     Args:
         service: Service name (e.g., 'nginx', 'docker')
         action: Action — 'start', 'stop', 'restart', 'enable', 'disable', 'reload'
@@ -1157,20 +1340,30 @@ def ssh_manage_service(service: str, action: str, session_name: str = "default")
     valid_actions = ["start", "stop", "restart", "enable", "disable", "reload"]
     if action not in valid_actions:
         return f"❌ Invalid action '{action}'. Valid: {', '.join(valid_actions)}"
-    
-    return _ssh.execute(f"systemctl {action} {service} && echo '✅ Service {service}: {action} successful'", session_name=session_name)
+    name = _valid(service, _SERVICE_RE, "service name")
+    result = _ssh.run(f"systemctl {action} {_q(name)}", session_name=session_name, timeout=120)
+    return _done(result, f"✅ Service {name}: {action} successful")
 
 
 @mcp.tool()
 def ssh_failed_logins(session_name: str = "default", count: int = 30) -> str:
     """
-    Show recent failed login attempts (from auth.log or journalctl).
-    
+    Show recent failed login attempts (from auth.log, secure, or journalctl).
+
     Args:
         session_name: SSH session to use
-        count: Number of entries to show (default: 30)
+        count: Number of entries to show (default: 30, max: 1000)
     """
-    cmd = f"grep 'Failed password' /var/log/auth.log 2>/dev/null | tail -n {count} || journalctl _COMM=sshd --no-pager 2>/dev/null | grep -i 'failed' | tail -n {count}"
+    n = _clamp(count, 1, 1000)
+    cmd = (
+        "if [ -r /var/log/auth.log ]; then "
+        f"grep -h 'Failed password' /var/log/auth.log | tail -n {n}; "
+        "elif [ -r /var/log/secure ]; then "
+        f"grep -h 'Failed password' /var/log/secure | tail -n {n}; "
+        "else "
+        f"journalctl _COMM=sshd --no-pager 2>/dev/null | grep -i 'failed' | tail -n {n}; "
+        "fi"
+    )
     return _ssh.execute(cmd, session_name=session_name)
 
 
