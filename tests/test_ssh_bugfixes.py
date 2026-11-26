@@ -18,8 +18,9 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 os.environ["SSH_MCP_CACHE_DIR"] = tempfile.mkdtemp()
 for var in ("SSH_HOST", "SSH_PASSWORD", "SSH_HOST_KEY_POLICY", "SSH_KNOWN_HOSTS"):
@@ -27,9 +28,9 @@ for var in ("SSH_HOST", "SSH_PASSWORD", "SSH_HOST_KEY_POLICY", "SSH_KNOWN_HOSTS"
 
 import paramiko  # noqa: E402
 
-import server  # noqa: E402
-import ssh_manager  # noqa: E402
-from ssh_manager import CommandResult, SSHManager, SSHSession  # noqa: E402
+from linux_ssh_mcp import server  # noqa: E402
+from linux_ssh_mcp import ssh_manager  # noqa: E402
+from linux_ssh_mcp.ssh_manager import CommandResult, SSHManager, SSHSession  # noqa: E402
 
 
 class CommandCaptureTestCase(unittest.TestCase):

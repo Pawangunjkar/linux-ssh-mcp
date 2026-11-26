@@ -18,7 +18,7 @@ from typing import Optional
 
 import paramiko
 
-from credential_store import CredentialStore, SSHCredentials
+from linux_ssh_mcp.credential_store import CredentialStore, SSHCredentials
 
 
 # Maximum output size in bytes (50KB default)

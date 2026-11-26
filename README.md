@@ -8,20 +8,6 @@
 
 ---
 
-## 🚀 Hosted Cloud (MCPize.com) & Pro Agent Skill Bundles (Agensi.io)
-
-Use this server locally for free over `stdio` (`uvx`), or subscribe to the hosted cloud endpoints on **[MCPize.com](https://mcpize.com)** paired with production `SKILL.md` playbooks on **[Agensi.io](https://agensi.io)**:
-
-| Tier | Offering | Cloud Runtime ([MCPize.com](https://mcpize.com)) | Pro Playbook ([Agensi.io](https://agensi.io)) | What's Included |
-| :--- | :--- | :---: | :---: | :--- |
-| **Free Demo** | Starter Access | `$0` *(25 read-only calls/mo)* | `github-mcp-lite` (`$0`) | Free read-only trial tier |
-| **Individual Pro** *(This Repo)* | **`linux-ssh-mcp`** | **`$19/mo`** *(`pawangunjkar-linux-ssh-mcp`)* | `linux-ssh-mcp-pro` (`$19`) | All **62 Linux SSH, systemd & Docker tools** + 5 host recovery playbooks |
-| **3-in-1 Bundle** | **Production SRE & Host Incident Triage** *(Saves 32%)* | **`$39/mo`** *(`pawangunjkar-bundle-sre-incident-triage-mcp`)* | Bundle 3 (`$39`) | `k8s-mcp` (23) + `observability-mcp` (15) + `linux-ssh-mcp` (62) = **100 tools** |
-| **3-in-1 Bundles** | **Cloud-Native DevOps** \| **Enterprise Release** | **`$39/mo`** each | Bundle 1 \| Bundle 2 (`$39`) | `github+k8s+obs` (118 tools) \| `jenkins+artifact+k8s` (88 tools) |
-| **6-in-1 Master Suite** | **Enterprise SDLC Orchestrator** *(Saves 37%)* | **`$69/mo`** *(`pawangunjkar-enterprise-sdlc-suite`)* | `enterprise-sdlc-orchestrator` (`$69`) | **All 6 MCP servers unified (245 tools)** + end-to-end SDLC/SRE workflows |
-
----
-
 ## 📋 Table of Contents
 
 - [Overview](#-overview)
@@ -122,7 +108,7 @@ npx -y @smithery/cli install linux-ssh-mcp --client cursor
 git clone https://github.com/Pawangunjkar/linux-ssh-mcp.git
 cd linux-ssh-mcp
 uv sync
-uv run server.py
+uv run linux-ssh-mcp
 ```
 
 > See [PUBLISHING.md](PUBLISHING.md) for PyPI, Smithery, and directory submission steps.
@@ -140,7 +126,7 @@ uv run server.py
                        │  stdio (stdin/stdout)
                        │
 ┌──────────────────────▼──────────────────────────────────┐
-│                  MCP Server (server.py)                 │
+│              MCP Server (src/linux_ssh_mcp/server.py)    │
 │               Built with FastMCP + Python               │
 │                                                         │
 │  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐  │
@@ -269,7 +255,7 @@ python -c "import mcp; import paramiko; print('All dependencies installed succes
 The MCP Inspector is a browser-based debugging tool that lets you test your server's tools interactively:
 
 ```powershell
-uv run mcp dev server.py
+uv run mcp dev src/linux_ssh_mcp/server.py
 ```
 
 This opens a web UI where you can invoke any tool, inspect inputs/outputs, and debug issues before connecting to your AI IDE.
@@ -310,7 +296,7 @@ Every IDE uses the same core JSON structure:
   "mcpServers": {
     "linux-ssh": {
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/linux-ssh-mcp", "server.py"],
+      "args": ["run", "--directory", "/path/to/linux-ssh-mcp", "linux-ssh-mcp"],
       "env": {
         "SSH_HOST": "your-host",
         "SSH_PORT": "22",
@@ -326,7 +312,7 @@ Every IDE uses the same core JSON structure:
 |---|---|
 | `"linux-ssh"` | A unique name for this MCP server (you can change it) |
 | `"command"` | `uvx` (PyPI) or `uv` (from source) |
-| `"args"` | Package name (`linux-ssh-mcp`) or source path + `server.py` |
+| `"args"` | Package name (`linux-ssh-mcp`) or source path + `linux-ssh-mcp` |
 | `"env"` | **OPTIONAL** — Environment variables for default SSH credentials |
 
 > **💡 The `env` section is entirely optional.** If you omit it, the server will interactively ask for credentials in the chat when you first try to connect. This is the recommended approach for security-sensitive environments.
@@ -358,7 +344,7 @@ your-project/
         "run",
         "--directory",
         "C:\\AI_Workspaces\\Anti_Workspace\\linux-ssh-mcp",
-        "server.py"
+        "linux-ssh-mcp"
       ],
       "env": {
         "SSH_HOST": "your-host",
@@ -394,7 +380,7 @@ If you prefer the server to ask for credentials in the chat:
         "run",
         "--directory",
         "C:\\AI_Workspaces\\Anti_Workspace\\linux-ssh-mcp",
-        "server.py"
+        "linux-ssh-mcp"
       ]
     }
   }
@@ -432,7 +418,7 @@ Open (or create) the config file and add the MCP server:
         "run",
         "--directory",
         "C:\\AI_Workspaces\\Anti_Workspace\\linux-ssh-mcp",
-        "server.py"
+        "linux-ssh-mcp"
       ]
     }
   }
@@ -466,7 +452,7 @@ Use the same JSON format as Cursor:
         "run",
         "--directory",
         "C:\\AI_Workspaces\\Anti_Workspace\\linux-ssh-mcp",
-        "server.py"
+        "linux-ssh-mcp"
       ],
       "env": {
         "SSH_HOST": "your-host",
@@ -503,7 +489,7 @@ Add the MCP server to `.continue/config.json` in your project or home directory:
         "run",
         "--directory",
         "C:\\AI_Workspaces\\Anti_Workspace\\linux-ssh-mcp",
-        "server.py"
+        "linux-ssh-mcp"
       ]
     }
   }
@@ -538,7 +524,7 @@ Add the MCP server to `.continue/config.json` in your project or home directory:
         "run",
         "--directory",
         "C:\\AI_Workspaces\\Anti_Workspace\\linux-ssh-mcp",
-        "server.py"
+        "linux-ssh-mcp"
       ],
       "env": {
         "SSH_HOST": "your-host",
@@ -567,12 +553,12 @@ Add the MCP server to `.continue/config.json` in your project or home directory:
         │
 2. Reads mcp.json / config file
         │
-3. Runs: uv run --directory <path> server.py
+3. Runs: uv run --directory <path> linux-ssh-mcp
         │
 4. uv automatically:
    ├── Creates .venv if needed
    ├── Installs dependencies from pyproject.toml
-   └── Launches server.py
+   └── Launches linux-ssh-mcp (`linux_ssh_mcp.server:main`)
         │
 5. server.py initializes FastMCP
    ├── Registers all 50+ tools
@@ -608,7 +594,7 @@ Returns: Formatted df -h output
 
 ```powershell
 # Open the MCP Inspector (browser-based tool debugger)
-uv run mcp dev server.py
+uv run mcp dev src/linux_ssh_mcp/server.py
 ```
 
 The Inspector lets you:
@@ -2306,7 +2292,7 @@ sudo usermod -aG docker mcp-user  # if Docker access is needed
 
 3. **Validate JSON syntax:** A single missing comma or bracket will break the config. Use a JSON validator.
 
-4. **Check the `--directory` path:** Make sure the path in `args` points to the actual project directory containing `server.py`.
+4. **Check the `--directory` path:** Make sure the path in `args` points to the actual project directory containing `pyproject.toml` and `src/linux_ssh_mcp/`.
 
 5. **Restart the IDE:** Some IDEs only read MCP configs on startup.
 
@@ -2377,7 +2363,7 @@ For any issue, the MCP Inspector provides detailed insight:
 
 ```powershell
 cd C:\AI_Workspaces\Anti_Workspace\linux-ssh-mcp
-uv run mcp dev server.py
+uv run mcp dev src/linux_ssh_mcp/server.py
 ```
 
 This opens a browser-based UI where you can:
@@ -2407,7 +2393,7 @@ This opens a browser-based UI where you can:
 This project was created by **Pawan Gunjkar**.
 
 - **Author**: Pawan Gunjkar
-- **Email**: pawangunjkar@gamil.com
+- **Email**: pawangunjkar@gmail.com
 - **Bug Reports**: If you find any bugs, issues, or want to report bugs/request help, please report them to me at my email above.
 
 ---
@@ -2419,7 +2405,7 @@ This project is licensed under the **MIT License**.
 ```
 MIT License
 
-Copyright (c) 2026 Pawan Gunjkar <pawangunjkar@gamil.com>
+Copyright (c) 2026 Pawan Gunjkar <pawangunjkar@gmail.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

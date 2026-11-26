@@ -19,8 +19,8 @@ import sys
 import time
 from mcp.server.fastmcp import FastMCP
 
-from ssh_manager import SSHManager
-from credential_store import CredentialStore
+from linux_ssh_mcp.ssh_manager import SSHManager
+from linux_ssh_mcp.credential_store import CredentialStore
 
 # ============================================================
 # Initialize MCP Server
